@@ -18,6 +18,7 @@ import type { SerializedSignature } from './signature.js';
 import type { SignaturePubkeyPair } from './utils.js';
 // eslint-disable-next-line import/no-cycle
 import { toSingleSignaturePubkeyPair } from './utils.js';
+import { ZkLoginPublicIdentifier } from '../keypairs/zklogin/publickey.js';
 
 export { MAX_SIGNER_IN_MULTISIG, MIN_SIGNER_IN_MULTISIG } from '../multisig/publickey.js';
 
@@ -29,12 +30,14 @@ export type PubkeyWeightPair = {
 export type CompressedSignature =
 	| { ED25519: number[] }
 	| { Secp256k1: number[] }
-	| { Secp256r1: number[] };
+	| { Secp256r1: number[] }
+	| { ZkLogin: number[] };
 
 export type PublicKeyEnum =
 	| { ED25519: number[] }
 	| { Secp256k1: number[] }
-	| { Secp256r1: number[] };
+	| { Secp256r1: number[] }
+	| { ZkLogin: number[] };
 
 export type PubkeyEnumWeightPair = {
 	pubKey: PublicKeyEnum;
@@ -126,6 +129,10 @@ export function combinePartialSigs(
 			compressed_sigs[i] = { Secp256k1: bytes };
 		} else if (parsed.signatureScheme === 'Secp256r1') {
 			compressed_sigs[i] = { Secp256r1: bytes };
+		} else if (parsed.signatureScheme === 'ZkLogin') {
+			compressed_sigs[i] = { ZkLogin: bytes };
+		} else {
+			throw new Error(`Unsupported signature scheme ${parsed.signatureScheme}`);
 		}
 		for (let j = 0; j < pks.length; j++) {
 			if (parsed.pubKey.equals(pks[j].pubKey)) {
@@ -166,14 +173,11 @@ export function decodeMultiSig(signature: string): SignaturePubkeyPair[] {
 			throw new Error('MultiSig is not supported inside MultiSig');
 		}
 
-		if (scheme === 'ZkLogin') {
-			throw new Error('ZkLogin is not supported inside MultiSig');
-		}
-
 		const SIGNATURE_SCHEME_TO_PUBLIC_KEY = {
 			ED25519: Ed25519PublicKey,
 			Secp256k1: Secp256k1PublicKey,
 			Secp256r1: Secp256r1PublicKey,
+			ZkLogin: ZkLoginPublicIdentifier,
 		};
 
 		const PublicKey = SIGNATURE_SCHEME_TO_PUBLIC_KEY[scheme];

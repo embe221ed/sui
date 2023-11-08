@@ -16,6 +16,7 @@ import { Ed25519Keypair, Ed25519PublicKey } from '../../../src/keypairs/ed25519'
 import { Secp256k1Keypair } from '../../../src/keypairs/secp256k1';
 import { Secp256r1Keypair } from '../../../src/keypairs/secp256r1';
 import { MultiSigPublicKey } from '../../../src/multisig/publickey';
+import { toZkLoginPublicIdentifier, ZkLoginPublicIdentifier } from '../../../src/keypairs/zklogin/publickey';
 
 describe('multisig address and combine sigs', () => {
 	// Address and combined multisig matches rust impl: fn multisig_serde_test()
@@ -111,7 +112,9 @@ describe('Multisig', () => {
 		k2: Secp256k1Keypair,
 		pk2: PublicKey,
 		k3: Secp256r1Keypair,
-		pk3: PublicKey;
+		pk3: PublicKey,
+		pk4: PublicKey,
+		pk5: PublicKey;
 
 	beforeAll(() => {
 		const VALID_SECP256K1_SECRET_KEY = [
@@ -135,6 +138,9 @@ describe('Multisig', () => {
 
 		k3 = Secp256r1Keypair.fromSecretKey(secret_key_r1);
 		pk3 = k3.getPublicKey();
+
+		pk4 = toZkLoginPublicIdentifier("https://id.twitch.tv/oauth2", "20794788559620669596206457022966176986688727876128223628113916380927502737911");
+		pk5 = toZkLoginPublicIdentifier("https://id.twitch.tv/oauth2", "380704556853533152350240698167704405529973457670972223618755249929828551006");
 	});
 
 	it('`toMultiSigAddress()` should derive a multisig address correctly', async () => {
@@ -157,6 +163,25 @@ describe('Multisig', () => {
 
 		expect(multisigAddress).toEqual(
 			'0x8ee027fe556a3f6c0a23df64f090d2429fec0bb21f55594783476e81de2dec27',
+		);
+	});
+	
+	it('`toMultiSigAddress()` with zklogin identifiers', async () => {
+		const pubkeyWeightPairs: PubkeyWeightPair[] = [
+			{
+				pubKey: pk4,
+				weight: 1,
+			},
+			{
+				pubKey: pk5,
+				weight: 1,
+			}
+		];
+
+		const multisigAddress = toMultiSigAddress(pubkeyWeightPairs, 1);
+
+		expect(multisigAddress).toEqual(
+			'0x77a9fbf3c695d78dd83449a81a9e70aa79a77dbfd6fb72037bf09201c12052cd',
 		);
 	});
 
@@ -209,6 +234,46 @@ describe('Multisig', () => {
 			},
 			{
 				signature: parseSerializedSignature((await k2.signPersonalMessage(data)).signature)
+					.signature,
+				signatureScheme: k2.getKeyScheme(),
+				pubKey: pk2,
+				weight: 2,
+			},
+		]);
+	});
+
+	it('`combinePartialSigs()` with zklogin sigs', async () => {
+		const pubkeyWeightPairs: PubkeyWeightPair[] = [
+			{
+				pubKey: pk1, // check this matches rust
+				weight: 1,
+			},
+			{
+				pubKey: pk4,
+				weight: 1,
+			}
+		];
+
+		const data = new Uint8Array([0, 0, 1, 0, 32, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 1, 0, 0, 185, 192, 120, 10, 57, 67, 205, 225, 58, 36, 9, 191, 26, 111, 6, 174, 96, 176, 223, 242, 178, 243, 115, 38, 12, 246, 39, 170, 79, 67, 165, 136, 1, 155, 7, 129, 95, 4, 73, 126, 46, 5, 210, 44, 172, 58, 160, 97, 65, 11, 32, 134, 140, 198, 25, 21, 76, 66, 161, 198, 27, 233, 144, 39, 23, 1, 0, 0, 0, 0, 0, 0, 0, 32, 150, 112, 237, 74, 86, 213, 113, 238, 108, 228, 72, 57, 166, 60, 119, 111, 150, 200, 19, 112, 160, 159, 133, 16, 12, 101, 177, 174, 225, 236, 145, 235, 185, 192, 120, 10, 57, 67, 205, 225, 58, 36, 9, 191, 26, 111, 6, 174, 96, 176, 223, 242, 178, 243, 115, 38, 12, 246, 39, 170, 79, 67, 165, 136, 1, 0, 0, 0, 0, 0, 0, 0, 16, 39, 0, 0, 0, 0, 0, 0, 0]);
+
+		const sig1 = await k1.signTransactionBlock(data);
+		const zklogin_sig = "";
+		const multisig = combinePartialSigs([sig1.signature, zklogin_sig], pubkeyWeightPairs, 1);
+
+		expect(multisig).toEqual(
+			'AwEDA00xNzMxODA4OTEyNTk1MjQyMTczNjM0MjI2MzcxNzkzMjcxOTQzNzcxNzg0NDI4MjQxMDE4Nzk1Nzk4NDc1MTkzOTk0Mjg5ODI1MTI1ME0xMTM3Mzk2NjY0NTQ2OTEyMjU4MjA3NDA4MjI5NTk4NTM4ODI1ODg0MDY4MTYxODI2ODU5Mzk3NjY5NzMyNTg5MjI4MDkxNTY4MTIwNwExAwJMNTkzOTg3MTE0NzM0ODgzNDk5NzM2MTcyMDEyMjIzODk4MDE3NzE1MjMwMzI3NDMxMTA0NzI0OTkwNTk0MjM4NDkxNTc2ODY5MDg5NUw0NTMzNTY4MjcxMTM0Nzg1Mjc4NzMxMjM0NTcwMzYxNDgyNjUxOTk2NzQwNzkxODg4Mjg1ODY0OTY2ODg0MDMyNzE3MDQ5ODExNzA4Ak0xMDU2NDM4NzI4NTA3MTU1NTQ2OTc1Mzk5MDY2MTQxMDg0MDExODYzNTkyNTQ2NjU5NzAzNzAxODA1ODc3MDA0MTM0NzUxODQ2MTM2OE0xMjU5NzMyMzU0NzI3NzU3OTE0NDY5ODQ5NjM3MjI0MjYxNTM2ODA4NTgwMTMxMzM0MzE1NTczNTUxMTMzMDAwMzg4NDc2Nzk1Nzg1NAIBMQEwA00xNTc5MTU4OTQ3MjU1NjgyNjI2MzIzMTY0NDcyODg3MzMzNzYyOTAxNTI2OTk4NDY5OTQwNDA3MzYyMzYwMzM1MjUzNzY3ODgxMzE3MUw0NTQ3ODY2NDk5MjQ4ODgxNDQ5Njc2MTYxMTU4MDI0NzQ4MDYwNDg1MzczMjUwMDI5NDIzOTA0MTEzMDE3NDIyNTM5MDM3MTYyNTI3ATExd2lhWE56SWpvaWFIUjBjSE02THk5cFpDNTBkMmwwWTJndWRIWXZiMkYxZEdneUlpdwIyZXlKaGJHY2lPaUpTVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0lzSW10cFpDSTZJakVpZlFNMjA3OTQ3ODg1NTk2MjA2Njk1OTYyMDY0NTcwMjI5NjYxNzY5ODY2ODg3Mjc4NzYxMjgyMjM2MjgxMTM5MTYzODA5Mjc1MDI3Mzc5MTEKAAAAAAAAAGEAEemRDkm/GpuoIq2qH0zRTlzejeXrYHoAtU7EyrqexzTLcmVjwZ/Vmg8D3vp2ibrLckYFROyvLprF+odxWu1EDLnG7hYw7z5xEUSmSNsGu7IoT3J0z77lP/zuUDzBpJIAAgACAA19qzWMja2qTvoASadbB0NlVbEKNoIZu2gPcFcTSdd1AQM8G2h0dHBzOi8vaWQudHdpdGNoLnR2L29hdXRoMi35buhGoP8xt7S3eQrWUWMfadbd+EaL1Up//rhxYmH3AQEA',
+		);
+
+		const decoded = decodeMultiSig(multisig);
+		expect(decoded).toEqual([
+			{
+				signature: '',
+				signatureScheme: 'ZkLogin',
+				pubKey: pk4,
+				weight: 1,
+			},
+			{
+				signature: parseSerializedSignature((await k1.signPersonalMessage(data)).signature)
 					.signature,
 				signatureScheme: k2.getKeyScheme(),
 				pubKey: pk2,

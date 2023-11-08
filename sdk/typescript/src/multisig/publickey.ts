@@ -21,9 +21,10 @@ import { publicKeyFromRawBytes } from '../verify/index.js';
 type CompressedSignature =
 	| { ED25519: number[] }
 	| { Secp256k1: number[] }
-	| { Secp256r1: number[] };
+	| { Secp256r1: number[] }
+	| { ZkLogin: number[] };
 
-type PublicKeyEnum = { ED25519: number[] } | { Secp256k1: number[] } | { Secp256r1: number[] };
+type PublicKeyEnum = { ED25519: number[] } | { Secp256k1: number[] } | { Secp256r1: number[]  } | { ZkLogin: number[]  };
 
 type PubkeyEnumWeightPair = {
 	pubKey: PublicKeyEnum;

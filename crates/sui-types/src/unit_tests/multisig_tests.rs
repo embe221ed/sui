@@ -911,10 +911,15 @@ fn multisig_zklogin_scenarios() {
     );
 
     let (_, envelop, zklogin_sig) = make_zklogin_tx(multisig_addr, false);
+    let tx = bcs::to_bytes(envelop.into_data().transaction_data()).unwrap();
+    println!("tx: {:?}", tx);
+
     let intent_msg = &IntentMessage::new(
         Intent::sui_transaction(),
-        envelop.into_data().transaction_data().clone(),
+        tx.clone(),
     );
+
+    assert_eq!(Base64::encode(zklogin_sig.as_ref()), "BQNNMTczMTgwODkxMjU5NTI0MjE3MzYzNDIyNjM3MTc5MzI3MTk0Mzc3MTc4NDQyODI0MTAxODc5NTc5ODQ3NTE5Mzk5NDI4OTgyNTEyNTBNMTEzNzM5NjY2NDU0NjkxMjI1ODIwNzQwODIyOTU5ODUzODgyNTg4NDA2ODE2MTgyNjg1OTM5NzY2OTczMjU4OTIyODA5MTU2ODEyMDcBMQMCTDU5Mzk4NzExNDczNDg4MzQ5OTczNjE3MjAxMjIyMzg5ODAxNzcxNTIzMDMyNzQzMTEwNDcyNDk5MDU5NDIzODQ5MTU3Njg2OTA4OTVMNDUzMzU2ODI3MTEzNDc4NTI3ODczMTIzNDU3MDM2MTQ4MjY1MTk5Njc0MDc5MTg4ODI4NTg2NDk2Njg4NDAzMjcxNzA0OTgxMTcwOAJNMTA1NjQzODcyODUwNzE1NTU0Njk3NTM5OTA2NjE0MTA4NDAxMTg2MzU5MjU0NjY1OTcwMzcwMTgwNTg3NzAwNDEzNDc1MTg0NjEzNjhNMTI1OTczMjM1NDcyNzc1NzkxNDQ2OTg0OTYzNzIyNDI2MTUzNjgwODU4MDEzMTMzNDMxNTU3MzU1MTEzMzAwMDM4ODQ3Njc5NTc4NTQCATEBMANNMTU3OTE1ODk0NzI1NTY4MjYyNjMyMzE2NDQ3Mjg4NzMzMzc2MjkwMTUyNjk5ODQ2OTk0MDQwNzM2MjM2MDMzNTI1Mzc2Nzg4MTMxNzFMNDU0Nzg2NjQ5OTI0ODg4MTQ0OTY3NjE2MTE1ODAyNDc0ODA2MDQ4NTM3MzI1MDAyOTQyMzkwNDExMzAxNzQyMjUzOTAzNzE2MjUyNwExMXdpYVhOeklqb2lhSFIwY0hNNkx5OXBaQzUwZDJsMFkyZ3VkSFl2YjJGMWRHZ3lJaXcCMmV5SmhiR2NpT2lKU1V6STFOaUlzSW5SNWNDSTZJa3BYVkNJc0ltdHBaQ0k2SWpFaWZRTTIwNzk0Nzg4NTU5NjIwNjY5NTk2MjA2NDU3MDIyOTY2MTc2OTg2Njg4NzI3ODc2MTI4MjIzNjI4MTEzOTE2MzgwOTI3NTAyNzM3OTExCgAAAAAAAABhABHpkQ5JvxqbqCKtqh9M0U5c3o3l62B6ALVOxMq6nsc0y3JlY8Gf1ZoPA976dom6y3JGBUTsry6axfqHcVrtRAy5xu4WMO8+cRFEpkjbBruyKE9ydM++5T/87lA8waSSAA==".to_string());
 
     let parsed: ImHashMap<JwkId, JWK> = parse_jwks(DEFAULT_JWK_BYTES, &OIDCProvider::Twitch)
         .unwrap()
@@ -927,28 +932,39 @@ fn multisig_zklogin_scenarios() {
     let multisig = MultiSig::combine(vec![zklogin_sig.clone()], multisig_pk.clone()).unwrap();
     let binding = GenericSignature::MultiSig(multisig);
     let bytes = binding.as_ref();
-    assert_eq!(bytes, Base64::decode("AwEDA00xNzMxODA4OTEyNTk1MjQyMTczNjM0MjI2MzcxNzkzMjcxOTQzNzcxNzg0NDI4MjQxMDE4Nzk1Nzk4NDc1MTkzOTk0Mjg5ODI1MTI1ME0xMTM3Mzk2NjY0NTQ2OTEyMjU4MjA3NDA4MjI5NTk4NTM4ODI1ODg0MDY4MTYxODI2ODU5Mzk3NjY5NzMyNTg5MjI4MDkxNTY4MTIwNwExAwJMNTkzOTg3MTE0NzM0ODgzNDk5NzM2MTcyMDEyMjIzODk4MDE3NzE1MjMwMzI3NDMxMTA0NzI0OTkwNTk0MjM4NDkxNTc2ODY5MDg5NUw0NTMzNTY4MjcxMTM0Nzg1Mjc4NzMxMjM0NTcwMzYxNDgyNjUxOTk2NzQwNzkxODg4Mjg1ODY0OTY2ODg0MDMyNzE3MDQ5ODExNzA4Ak0xMDU2NDM4NzI4NTA3MTU1NTQ2OTc1Mzk5MDY2MTQxMDg0MDExODYzNTkyNTQ2NjU5NzAzNzAxODA1ODc3MDA0MTM0NzUxODQ2MTM2OE0xMjU5NzMyMzU0NzI3NzU3OTE0NDY5ODQ5NjM3MjI0MjYxNTM2ODA4NTgwMTMxMzM0MzE1NTczNTUxMTMzMDAwMzg4NDc2Nzk1Nzg1NAIBMQEwA00xNTc5MTU4OTQ3MjU1NjgyNjI2MzIzMTY0NDcyODg3MzMzNzYyOTAxNTI2OTk4NDY5OTQwNDA3MzYyMzYwMzM1MjUzNzY3ODgxMzE3MUw0NTQ3ODY2NDk5MjQ4ODgxNDQ5Njc2MTYxMTU4MDI0NzQ4MDYwNDg1MzczMjUwMDI5NDIzOTA0MTEzMDE3NDIyNTM5MDM3MTYyNTI3ATExd2lhWE56SWpvaWFIUjBjSE02THk5cFpDNTBkMmwwWTJndWRIWXZiMkYxZEdneUlpdwIyZXlKaGJHY2lPaUpTVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0lzSW10cFpDSTZJakVpZlFNMjA3OTQ3ODg1NTk2MjA2Njk1OTYyMDY0NTcwMjI5NjYxNzY5ODY2ODg3Mjc4NzYxMjgyMjM2MjgxMTM5MTYzODA5Mjc1MDI3Mzc5MTEKAAAAAAAAAGEAEemRDkm/GpuoIq2qH0zRTlzejeXrYHoAtU7EyrqexzTLcmVjwZ/Vmg8D3vp2ibrLckYFROyvLprF+odxWu1EDLnG7hYw7z5xEUSmSNsGu7IoT3J0z77lP/zuUDzBpJIAAgACAA19qzWMja2qTvoASadbB0NlVbEKNoIZu2gPcFcTSdd1AQM8G2h0dHBzOi8vaWQudHdpdGNoLnR2L29hdXRoMi35buhGoP8xt7S3eQrWUWMfadbd+EaL1Up//rhxYmH3AQEA").unwrap());
+    assert_eq!(Base64::encode(binding.as_ref()), "AwEDA00xNzMxODA4OTEyNTk1MjQyMTczNjM0MjI2MzcxNzkzMjcxOTQzNzcxNzg0NDI4MjQxMDE4Nzk1Nzk4NDc1MTkzOTk0Mjg5ODI1MTI1ME0xMTM3Mzk2NjY0NTQ2OTEyMjU4MjA3NDA4MjI5NTk4NTM4ODI1ODg0MDY4MTYxODI2ODU5Mzk3NjY5NzMyNTg5MjI4MDkxNTY4MTIwNwExAwJMNTkzOTg3MTE0NzM0ODgzNDk5NzM2MTcyMDEyMjIzODk4MDE3NzE1MjMwMzI3NDMxMTA0NzI0OTkwNTk0MjM4NDkxNTc2ODY5MDg5NUw0NTMzNTY4MjcxMTM0Nzg1Mjc4NzMxMjM0NTcwMzYxNDgyNjUxOTk2NzQwNzkxODg4Mjg1ODY0OTY2ODg0MDMyNzE3MDQ5ODExNzA4Ak0xMDU2NDM4NzI4NTA3MTU1NTQ2OTc1Mzk5MDY2MTQxMDg0MDExODYzNTkyNTQ2NjU5NzAzNzAxODA1ODc3MDA0MTM0NzUxODQ2MTM2OE0xMjU5NzMyMzU0NzI3NzU3OTE0NDY5ODQ5NjM3MjI0MjYxNTM2ODA4NTgwMTMxMzM0MzE1NTczNTUxMTMzMDAwMzg4NDc2Nzk1Nzg1NAIBMQEwA00xNTc5MTU4OTQ3MjU1NjgyNjI2MzIzMTY0NDcyODg3MzMzNzYyOTAxNTI2OTk4NDY5OTQwNDA3MzYyMzYwMzM1MjUzNzY3ODgxMzE3MUw0NTQ3ODY2NDk5MjQ4ODgxNDQ5Njc2MTYxMTU4MDI0NzQ4MDYwNDg1MzczMjUwMDI5NDIzOTA0MTEzMDE3NDIyNTM5MDM3MTYyNTI3ATExd2lhWE56SWpvaWFIUjBjSE02THk5cFpDNTBkMmwwWTJndWRIWXZiMkYxZEdneUlpdwIyZXlKaGJHY2lPaUpTVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0lzSW10cFpDSTZJakVpZlFNMjA3OTQ3ODg1NTk2MjA2Njk1OTYyMDY0NTcwMjI5NjYxNzY5ODY2ODg3Mjc4NzYxMjgyMjM2MjgxMTM5MTYzODA5Mjc1MDI3Mzc5MTEKAAAAAAAAAGEAEemRDkm/GpuoIq2qH0zRTlzejeXrYHoAtU7EyrqexzTLcmVjwZ/Vmg8D3vp2ibrLckYFROyvLprF+odxWu1EDLnG7hYw7z5xEUSmSNsGu7IoT3J0z77lP/zuUDzBpJIAAgACAA19qzWMja2qTvoASadbB0NlVbEKNoIZu2gPcFcTSdd1AQM8G2h0dHBzOi8vaWQudHdpdGNoLnR2L29hdXRoMi35buhGoP8xt7S3eQrWUWMfadbd+EaL1Up//rhxYmH3AQEA".to_string());
+    
     let generic_sig = GenericSignature::from_bytes(bytes).unwrap();
     match generic_sig {
         GenericSignature::MultiSig(multisig) => {
-            assert!(multisig
-                .verify_authenticator(intent_msg, multisig_addr, Some(9), &aux_verify_data)
-                .is_ok());
+            let res = multisig
+                .verify_authenticator(intent_msg, multisig_addr, Some(9), &aux_verify_data);
+            println!("res: {:?}", res);
+            assert!(res.is_ok())
         }
         _ => panic!("unexpected signature type"),
     }
 
     // use zklogin address instead of multisig address fails.
     let zklogin_addr = SuiAddress::try_from(&zklogin_sig).unwrap();
-    let multisig = MultiSig::combine(vec![zklogin_sig], multisig_pk.clone()).unwrap();
+    let multisig = MultiSig::combine(vec![zklogin_sig.clone()], multisig_pk.clone()).unwrap();
     assert!(multisig
         .verify_authenticator(intent_msg, zklogin_addr, Some(10), &aux_verify_data)
         .is_err());
 
     // 1 traditional sig verifies.
-    let sig1 = Signature::new_secure(intent_msg, &keys[0]).into();
-    let multisig1 = MultiSig::combine(vec![sig1], multisig_pk).unwrap();
+    let sig1: GenericSignature = Signature::new_secure(intent_msg, &keys[0]).into();
+
+    let multisig1 = MultiSig::combine(vec![sig1.clone()], multisig_pk.clone()).unwrap();
     assert!(multisig1
+        .verify_authenticator(intent_msg, multisig_addr, Some(10), &aux_verify_data)
+        .is_ok());
+
+    // zkLogin sig + traditional sig combined verifies. 
+    let multisig2 = MultiSig::combine(vec![sig1.clone(), zklogin_sig], multisig_pk).unwrap();
+    let binding = GenericSignature::MultiSig(multisig);
+    assert_eq!(Base64::encode(binding.as_ref()), "AwEDA00xNzMxODA4OTEyNTk1MjQyMTczNjM0MjI2MzcxNzkzMjcxOTQzNzcxNzg0NDI4MjQxMDE4Nzk1Nzk4NDc1MTkzOTk0Mjg5ODI1MTI1ME0xMTM3Mzk2NjY0NTQ2OTEyMjU4MjA3NDA4MjI5NTk4NTM4ODI1ODg0MDY4MTYxODI2ODU5Mzk3NjY5NzMyNTg5MjI4MDkxNTY4MTIwNwExAwJMNTkzOTg3MTE0NzM0ODgzNDk5NzM2MTcyMDEyMjIzODk4MDE3NzE1MjMwMzI3NDMxMTA0NzI0OTkwNTk0MjM4NDkxNTc2ODY5MDg5NUw0NTMzNTY4MjcxMTM0Nzg1Mjc4NzMxMjM0NTcwMzYxNDgyNjUxOTk2NzQwNzkxODg4Mjg1ODY0OTY2ODg0MDMyNzE3MDQ5ODExNzA4Ak0xMDU2NDM4NzI4NTA3MTU1NTQ2OTc1Mzk5MDY2MTQxMDg0MDExODYzNTkyNTQ2NjU5NzAzNzAxODA1ODc3MDA0MTM0NzUxODQ2MTM2OE0xMjU5NzMyMzU0NzI3NzU3OTE0NDY5ODQ5NjM3MjI0MjYxNTM2ODA4NTgwMTMxMzM0MzE1NTczNTUxMTMzMDAwMzg4NDc2Nzk1Nzg1NAIBMQEwA00xNTc5MTU4OTQ3MjU1NjgyNjI2MzIzMTY0NDcyODg3MzMzNzYyOTAxNTI2OTk4NDY5OTQwNDA3MzYyMzYwMzM1MjUzNzY3ODgxMzE3MUw0NTQ3ODY2NDk5MjQ4ODgxNDQ5Njc2MTYxMTU4MDI0NzQ4MDYwNDg1MzczMjUwMDI5NDIzOTA0MTEzMDE3NDIyNTM5MDM3MTYyNTI3ATExd2lhWE56SWpvaWFIUjBjSE02THk5cFpDNTBkMmwwWTJndWRIWXZiMkYxZEdneUlpdwIyZXlKaGJHY2lPaUpTVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0lzSW10cFpDSTZJakVpZlFNMjA3OTQ3ODg1NTk2MjA2Njk1OTYyMDY0NTcwMjI5NjYxNzY5ODY2ODg3Mjc4NzYxMjgyMjM2MjgxMTM5MTYzODA5Mjc1MDI3Mzc5MTEKAAAAAAAAAGEAEemRDkm/GpuoIq2qH0zRTlzejeXrYHoAtU7EyrqexzTLcmVjwZ/Vmg8D3vp2ibrLckYFROyvLprF+odxWu1EDLnG7hYw7z5xEUSmSNsGu7IoT3J0z77lP/zuUDzBpJIAAgACAA19qzWMja2qTvoASadbB0NlVbEKNoIZu2gPcFcTSdd1AQM8G2h0dHBzOi8vaWQudHdpdGNoLnR2L29hdXRoMi35buhGoP8xt7S3eQrWUWMfadbd+EaL1Up//rhxYmH3AQEA".to_string());
+    assert!(multisig2
         .verify_authenticator(intent_msg, multisig_addr, Some(10), &aux_verify_data)
         .is_ok());
 
