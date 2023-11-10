@@ -1,5 +1,16 @@
 # @mysten/sui.js
 
+## 0.46.0
+
+### Minor Changes
+
+- 093554a0d: Remove deprecated framework code.
+
+### Patch Changes
+
+- 28c2c3330: Use the same issuer string in address derivation for the two google's iss values
+- 3718a230b: Adds `txb.pure.id()` to pass ID pure values more intuitively
+
 ## 0.45.1
 
 ### Patch Changes
