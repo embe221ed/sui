@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["make_package"],"mod":["error"],"struct":["Package","PackageStoreWithLruCache","Resolver"],"trait":["PackageStore"],"type":["Result"]};
