@@ -2169,9 +2169,9 @@ pub fn on_hover_request(context: &Context, request: &Request, symbols: &Symbols)
         request.id.clone(),
         |u| {
             let lang_string = LanguageString {
-                language: "".to_string(),
+                language: "markdown".to_string(),
                 value: if !u.doc_string.is_empty() {
-                    format!("{}\n\n{}", u.use_type, u.doc_string)
+                    format!("```move\n{}\n```\n\n{}", u.use_type, u.doc_string)
                 } else {
                     format!("{}", u.use_type)
                 },
