@@ -306,7 +306,7 @@ fn arg_list_to_ide_string(names: &[Symbol], types: &[Type]) -> String {
 fn type_to_ide_string(sp!(_, t): &Type) -> String {
     match t {
         Type_::Unit => "()".to_string(),
-        Type_::Ref(m, r) => format!("&{} {}", if *m { "mut" } else { "" }, type_to_ide_string(r)),
+        Type_::Ref(m, r) => format!("&{}{}", if *m { "mut " } else { "" }, type_to_ide_string(r)),
         Type_::Param(tp) => {
             format!("{}", tp.user_specified_name)
         }
@@ -2168,15 +2168,30 @@ pub fn on_hover_request(context: &Context, request: &Request, symbols: &Symbols)
         col,
         request.id.clone(),
         |u| {
-            let lang_string = LanguageString {
-                language: "markdown".to_string(),
-                value: if !u.doc_string.is_empty() {
-                    format!("```move\n{}\n```\n\n{}", u.use_type, u.doc_string)
-                } else {
-                    format!("{}", u.use_type)
-                },
+            let lang_strings = if !u.doc_string.is_empty() {
+                vec![
+                    MarkedString::LanguageString(
+                        LanguageString {
+                            language: "move".to_string(),
+                            // value: format!("{}```\n\n```markdown\n{}", u.use_type, u.doc_string)
+                            value: u.use_type.to_string(),
+                        },
+                    ),
+                    MarkedString::String(
+                        u.doc_string.trim().to_string(),
+                    ),
+                ]
+            } else {
+                vec![
+                    MarkedString::LanguageString(
+                        LanguageString {
+                            language: "move".to_string(),
+                            value: u.use_type.to_string(),
+                        },
+                    ),
+                ]
             };
-            let contents = HoverContents::Scalar(MarkedString::LanguageString(lang_string));
+            let contents = HoverContents::Array(lang_strings);
             let range = None;
             Some(serde_json::to_value(Hover { contents, range }).unwrap())
         },
