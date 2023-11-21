@@ -2366,18 +2366,57 @@ pub fn on_inlay_hint_request(context: &Context, request: &Request, symbols: &Sym
         .unwrap();
 
     let mut result = Vec::new();
-    // NOTE: iterating through this list I can get every symbol
     if let Some(mod_symbols) = symbols.file_use_defs.get(&fpath) {
+        let mut is_call = false;
+        let mut called_function_args: Vec<Symbol> = Vec::new();
         for (use_line, uses) in &mod_symbols.clone().elements() {
-            eprintln!("use_line: {}", use_line);
             for u in uses {
+                // TODO: need to handle function calls without named variables like: `foo(1, b"abcd")` instead of `foo(a, b)`
+                eprintln!("use_line: {}, u: {:?}", use_line, u);
+                let padding_right = is_call;
                 let hint = match &u.use_type {
-                    IdentType::RegularType(_) => InlayHint {
+                    IdentType::RegularType(t) => InlayHint {
                         position: Position {
                             line: *use_line,
-                            character: u.col_end
+                            character: {
+                                if is_call {
+                                    u.col_start
+                                } else {
+                                    u.col_end
+                                }
+                            },
                         },
-                        label: InlayHintLabel::String(format!(": {}", u.use_type.to_string())),
+                        label: {
+                            if is_call {
+                                let param = called_function_args.pop();
+                                is_call = called_function_args.len() != 0;
+                                match param {
+                                    Some(param_name) => InlayHintLabel::String(format!("{}:", param_name.to_string())),
+                                    None => {
+                                        is_call = false;
+                                        InlayHintLabel::String("none".to_string())
+                                    }
+                                }
+                            } else {
+                                match t {
+                                    sp!(_, Type_::Apply(_, sp!(_, type_name), ss)) => match type_name {
+                                        TypeName_::ModuleType(_, struct_name) => InlayHintLabel::String(
+                                            format!(
+                                                ": {}{}",
+                                                struct_name,
+                                                if ss.is_empty() {
+                                                    "".to_string()
+                                                } else {
+                                                    format!("<{}>", type_list_to_ide_string(ss))
+                                                }
+                                            )
+                                        ),
+                                        _ => InlayHintLabel::String(format!(": {}", type_to_ide_string(t))),
+                                    },
+                                    _ => InlayHintLabel::String(format!(": {}", type_to_ide_string(t)))
+                                }
+                            }
+                        },
                         kind: Some(InlayHintKind::TYPE),
                         text_edits: Some(vec![
                             TextEdit {
@@ -2396,22 +2435,58 @@ pub fn on_inlay_hint_request(context: &Context, request: &Request, symbols: &Sym
                         ]),
                         tooltip: None,
                         padding_left: Some(false),
-                        padding_right: Some(false),
+                        padding_right: Some(padding_right),
                         data: None,
                     },
                     IdentType::FunctionType(module, symbol, type_args, arg_names, arg_types, ret)=> {
-                        eprintln!("UseDef::col_start: {}, ::col_end: {}", u.col_start, u.col_end);
-                        eprintln!("UseDef::use_type: {}", u.use_type);
-                        let ret_type = match &ret {
-                            sp!(_, Type_::Unit) => "unit".to_string(),
-                            sp!(_, Type_::Apply(_, type_name, _)) => {
-                                match &type_name {
-                                    sp!(_, TypeName_::Multiple(_)) => "(multiple)".to_string(),
-                                    _ => type_name.to_string(),
-                                }
-                            },
-                            _ => "default".to_string(),
-                        };
+                        let ret_type = type_to_ide_string(ret);
+                        if is_call {
+                            let param_hint = InlayHint {
+                                position: Position {
+                                    line: *use_line,
+                                    character: u.col_start,
+                                },
+                                label: {
+                                    let param = called_function_args.pop();
+                                    is_call = called_function_args.len() != 0;
+                                    match param {
+                                        Some(param_name) => InlayHintLabel::String(format!("{}:", param_name.to_string())),
+                                        None => {
+                                            is_call = false;
+                                            InlayHintLabel::String("none".to_string())
+                                        }
+                                    }
+                                },
+                                kind: Some(InlayHintKind::TYPE),
+                                text_edits: Some(vec![
+                                    TextEdit {
+                                        range: Range {
+                                            start: Position {
+                                                line: *use_line,
+                                                character: u.col_end + (u.use_type.to_string().len() as u32) + 1,
+                                            },
+                                            end: Position {
+                                                line: *use_line,
+                                                character: u.col_end + (u.use_type.to_string().len() as u32) + 1,
+                                            }
+                                        },
+                                        new_text: u.use_type.to_string(), 
+                                    }
+                                ]),
+                                tooltip: None,
+                                padding_left: Some(false),
+                                padding_right: Some(true),
+                                data: None,
+                            };
+                            result.push(param_hint);
+                        }
+                        if u.def_loc.start.character == u.col_start && u.def_loc.start.line == *use_line {} else {
+                            is_call = true;
+                            let mut new_called_function_args = arg_names.to_vec();
+                            new_called_function_args.reverse();
+                            new_called_function_args.append(&mut called_function_args);
+                            called_function_args = new_called_function_args;
+                        }
                         InlayHint {
                             position: Position {
                                 line: *use_line,
