@@ -73,7 +73,7 @@ fn main() {
                 // data be sent "over the wire." However, to do so, our language server would need
                 // to be capable of applying deltas to its view of the client's open files. See the
                 // 'move_analyzer::vfs' module for details.
-                change: Some(TextDocumentSyncKind::Full),
+                change: Some(TextDocumentSyncKind::FULL),
                 will_save: None,
                 will_save_wait_until: None,
                 save: Some(
@@ -100,6 +100,7 @@ fn main() {
             work_done_progress_options: WorkDoneProgressOptions {
                 work_done_progress: None,
             },
+            completion_item: None,
         }),
         definition_provider: Some(OneOf::Left(symbols::DEFS_AND_REFS_SUPPORT)),
         type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(
@@ -107,6 +108,7 @@ fn main() {
         )),
         references_provider: Some(OneOf::Left(symbols::DEFS_AND_REFS_SUPPORT)),
         document_symbol_provider: Some(OneOf::Left(true)),
+        inlay_hint_provider: Some(OneOf::Left(true)),
         ..Default::default()
     })
     .expect("could not serialize server capabilities");
@@ -176,7 +178,7 @@ fn main() {
                                 }
                             },
                             Err(err) => {
-                                let typ = lsp_types::MessageType::Error;
+                                let typ = lsp_types::MessageType::ERROR;
                                 let message = format!("{err}");
                                     // report missing manifest only once to avoid re-generating
                                     // user-visible error in cases when the developer decides to
@@ -240,6 +242,9 @@ fn on_request(context: &Context, request: &Request) {
         }
         lsp_types::request::DocumentSymbolRequest::METHOD => {
             symbols::on_document_symbol_request(context, request, &context.symbols.lock().unwrap());
+        }
+        lsp_types::request::InlayHintRequest::METHOD => {
+            symbols::on_inlay_hint_request(context, request, &context.symbols.lock().unwrap());
         }
         _ => eprintln!("handle request '{}' from client", request.method),
     }

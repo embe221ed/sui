@@ -219,6 +219,7 @@ pub type BuiltinTypeName = Spanned<BuiltinTypeName_>;
 #[allow(clippy::large_enum_variant)]
 pub enum TypeName_ {
     // exp-list/tuple type
+    // TODO: need to parse types in case of Multiple
     Multiple(usize),
     Builtin(BuiltinTypeName),
     ModuleType(ModuleIdent, StructName),

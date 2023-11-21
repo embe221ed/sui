@@ -62,7 +62,8 @@ use lsp_server::{Request, RequestId};
 use lsp_types::{
     request::GotoTypeDefinitionParams, Diagnostic, DocumentSymbol, DocumentSymbolParams,
     GotoDefinitionParams, Hover, HoverContents, HoverParams, LanguageString, Location,
-    MarkedString, Position, Range, ReferenceParams, SymbolKind,
+    MarkedString, Position, Range, ReferenceParams, SymbolKind, InlayHintParams,
+    InlayHint, InlayHintLabel, InlayHintKind, TextEdit,
 };
 
 use std::{
@@ -2254,7 +2255,7 @@ pub fn on_document_symbol_request(context: &Context, request: &Request, symbols:
     for mod_def in mods {
         let name = mod_def.name.module.clone().to_string();
         let detail = Some(mod_def.name.clone().to_string());
-        let kind = SymbolKind::Module;
+        let kind = SymbolKind::MODULE;
         let range = Range {
             start: mod_def.start,
             end: mod_def.start,
@@ -2273,7 +2274,7 @@ pub fn on_document_symbol_request(context: &Context, request: &Request, symbols:
             children.push(DocumentSymbol {
                 name: sym.clone().to_string(),
                 detail: None,
-                kind: SymbolKind::Constant,
+                kind: SymbolKind::CONSTANT,
                 range: const_range,
                 selection_range: const_range,
                 children: None,
@@ -2296,7 +2297,7 @@ pub fn on_document_symbol_request(context: &Context, request: &Request, symbols:
             children.push(DocumentSymbol {
                 name: sym.clone().to_string(),
                 detail: None,
-                kind: SymbolKind::Struct,
+                kind: SymbolKind::STRUCT,
                 range: struct_range,
                 selection_range: struct_range,
                 children: Some(fields),
@@ -2321,7 +2322,7 @@ pub fn on_document_symbol_request(context: &Context, request: &Request, symbols:
             children.push(DocumentSymbol {
                 name: sym.clone().to_string(),
                 detail,
-                kind: SymbolKind::Function,
+                kind: SymbolKind::FUNCTION,
                 range: func_range,
                 selection_range: func_range,
                 children: None,
@@ -2353,6 +2354,147 @@ pub fn on_document_symbol_request(context: &Context, request: &Request, symbols:
     }
 }
 
+pub fn on_inlay_hint_request(context: &Context, request: &Request, symbols: &Symbols) {
+    let parameters = serde_json::from_value::<InlayHintParams>(request.params.clone())
+        .expect("could not deserialize inlay hint request");
+
+    let range = parameters.range;
+    let fpath = parameters
+        .text_document
+        .uri
+        .to_file_path()
+        .unwrap();
+
+    let mut result = Vec::new();
+    // NOTE: iterating through this list I can get every symbol
+    if let Some(mod_symbols) = symbols.file_use_defs.get(&fpath) {
+        for (use_line, uses) in &mod_symbols.clone().elements() {
+            eprintln!("use_line: {}", use_line);
+            for u in uses {
+                let hint = match &u.use_type {
+                    IdentType::RegularType(_) => InlayHint {
+                        position: Position {
+                            line: *use_line,
+                            character: u.col_end
+                        },
+                        label: InlayHintLabel::String(format!(": {}", u.use_type.to_string())),
+                        kind: Some(InlayHintKind::TYPE),
+                        text_edits: Some(vec![
+                            TextEdit {
+                                range: Range {
+                                    start: Position {
+                                        line: *use_line,
+                                        character: u.col_start,
+                                    },
+                                    end: Position {
+                                        line: *use_line,
+                                        character: u.col_end + 1,
+                                    }
+                                },
+                                new_text: u.use_type.to_string() 
+                            }
+                        ]),
+                        tooltip: None,
+                        padding_left: Some(false),
+                        padding_right: Some(false),
+                        data: None,
+                    },
+                    IdentType::FunctionType(module, symbol, type_args, arg_names, arg_types, ret)=> {
+                        eprintln!("UseDef::col_start: {}, ::col_end: {}", u.col_start, u.col_end);
+                        eprintln!("UseDef::use_type: {}", u.use_type);
+                        let ret_type = match &ret {
+                            sp!(_, Type_::Unit) => "unit".to_string(),
+                            sp!(_, Type_::Apply(_, type_name, _)) => {
+                                match &type_name {
+                                    sp!(_, TypeName_::Multiple(_)) => "(multiple)".to_string(),
+                                    _ => type_name.to_string(),
+                                }
+                            },
+                            _ => "default".to_string(),
+                        };
+                        InlayHint {
+                            position: Position {
+                                line: *use_line,
+                                character: u.col_end + (u.use_type.to_string().len() as u32) + 1
+                            },
+                            label: InlayHintLabel::String(format!("=> {}", ret_type)),
+                            kind: Some(InlayHintKind::TYPE),
+                            text_edits: Some(vec![
+                                TextEdit {
+                                    range: Range {
+                                        start: Position {
+                                            line: *use_line,
+                                            character: u.col_end + (u.use_type.to_string().len() as u32) + 1,
+                                        },
+                                        end: Position {
+                                            line: *use_line,
+                                            character: u.col_end + (u.use_type.to_string().len() as u32) + 1,
+                                        }
+                                    },
+                                    new_text: u.use_type.to_string(), 
+                                }
+                            ]),
+                            tooltip: None,
+                            padding_left: Some(true),
+                            padding_right: Some(false),
+                            data: None,
+                        }
+                    }
+                };
+                result.push(hint);
+            }
+        }
+    }
+
+    // eprintln!("test test test");
+
+    let response = lsp_server::Response::new_ok(request.id.clone(), Some(serde_json::to_value(result).unwrap()));
+    if let Err(err) = context
+        .connection
+        .sender
+        .send(lsp_server::Message::Response(response))
+    {
+        eprintln!("could not send use response: {:?}", err);
+    }
+
+    /* on_use_request(
+        context,
+        symbols,
+        &fpath,
+        line,
+        col,
+        request.id.clone(),
+        |u| {
+            let lang_strings = if !u.doc_string.is_empty() {
+                vec![
+                    MarkedString::LanguageString(
+                        LanguageString {
+                            language: "move".to_string(),
+                            // value: format!("{}```\n\n```markdown\n{}", u.use_type, u.doc_string)
+                            value: u.use_type.to_string(),
+                        },
+                    ),
+                    MarkedString::String(
+                        u.doc_string.trim().to_string(),
+                    ),
+                ]
+            } else {
+                vec![
+                    MarkedString::LanguageString(
+                        LanguageString {
+                            language: "move".to_string(),
+                            value: u.use_type.to_string(),
+                        },
+                    ),
+                ]
+            };
+            let contents = HoverContents::Array(lang_strings);
+            let range = None;
+            Some(serde_json::to_value(Hover { contents, range }).unwrap())
+        },
+    ); */
+}
+
 /// Helper function to handle struct fields
 #[allow(deprecated)]
 fn handle_struct_fields(struct_def: StructDef, fields: &mut Vec<DocumentSymbol>) {
@@ -2367,7 +2509,7 @@ fn handle_struct_fields(struct_def: StructDef, fields: &mut Vec<DocumentSymbol>)
         fields.push(DocumentSymbol {
             name: field_def.name.clone().to_string(),
             detail: None,
-            kind: SymbolKind::Field,
+            kind: SymbolKind::FIELD,
             range: field_range,
             selection_range: field_range,
             children: None,

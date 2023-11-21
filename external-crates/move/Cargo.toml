@@ -49,8 +49,8 @@ internment = { version = "0.5.0", features = [ "arc"] }
 itertools = "0.10.0"
 libfuzzer-sys = "0.4"
 log = { version = "0.4.14", features = ["serde"] }
-lsp-server = "0.5.1"
-lsp-types = "0.90.1"
+lsp-server = "0.7.4"
+lsp-types = "0.94.1"
 memory-stats = "1.0.0"
 mirai-annotations = "1.10.1"
 named-lock = "0.2.0"
