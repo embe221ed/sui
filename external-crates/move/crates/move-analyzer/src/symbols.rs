@@ -1090,6 +1090,7 @@ impl Symbolicator {
             );
         }
 
+        // NOTE: looks important
         match &fun.body.value {
             FunctionBody_::Defined(sequence) => {
                 for seq_item in sequence {
@@ -1360,6 +1361,7 @@ impl Symbolicator {
                 use_defs,
                 exp.ty.clone(),
             ),
+            // NOTE: function call
             E::ModuleCall(mod_call) => self.mod_call_symbols(mod_call, scope, references, use_defs),
             E::Builtin(builtin_fun, exp) => {
                 use BuiltinFunction_ as BF;
@@ -1466,6 +1468,7 @@ impl Symbolicator {
                 self.exp_symbols(exp, scope, references, use_defs);
                 self.add_type_id_use_def(t, references, use_defs);
             }
+            E::Value(exp) => {}
 
             _ => (),
         }
@@ -1507,6 +1510,7 @@ impl Symbolicator {
         references: &mut BTreeMap<DefLoc, BTreeSet<UseLoc>>,
         use_defs: &mut UseDefMap,
     ) {
+        use UnannotatedExp_ as E;
         let mod_ident = mod_call.module;
         let mod_def = self.mod_outer_defs.get(&mod_ident.value).unwrap();
 
@@ -1531,6 +1535,30 @@ impl Symbolicator {
         }
 
         // handle arguments
+        match &mod_call.arguments.exp.value {
+            E::ExpList(list_items) => {
+                for item in list_items {
+                    let exp = match item {
+                        ExpListItem::Single(e, _) => e,
+                        ExpListItem::Splat(_, e, _) => e,
+                    };
+                    match &exp.exp.value {
+                        E::Value(val) => {
+                            self.add_value_use_def(
+                                &mod_call.name.value(),
+                                &val.loc,
+                                references,
+                                scope,
+                                use_defs,
+                                exp.ty.clone()
+                            );
+                        }
+                        _ => {}
+                    };
+                }
+            }
+            _ => ()
+        };
         self.exp_symbols(&mod_call.arguments, scope, references, use_defs);
     }
 
@@ -1968,6 +1996,40 @@ impl Symbolicator {
         }
     }
 
+    fn add_value_use_def(
+        &self,
+        use_name: &Symbol,
+        use_pos: &Loc,
+        references: &mut BTreeMap<DefLoc, BTreeSet<UseLoc>>,
+        scope: &OrdMap<Symbol, DefLoc>,
+        use_defs: &mut UseDefMap,
+        use_type: Type,
+    ) {
+        let name_start = match Self::get_start_loc(use_pos, &self.files, &self.file_id_mapping) {
+            Some(v) => v,
+            None => {
+                debug_assert!(false);
+                return;
+            }
+        };
+
+        let ident_type = IdentType::RegularType(use_type);
+        use_defs.insert(
+            name_start.line,
+            UseDef::new(
+                references,
+                use_pos.file_hash(),
+                name_start,
+                use_pos.file_hash(),
+                name_start,
+                use_name,
+                ident_type,
+                None,
+                String::new()
+            ),
+        );
+    }
+
     fn create_struct_type(
         module_ident: ModuleIdent,
         struct_name: StructName,
@@ -2371,8 +2433,6 @@ pub fn on_inlay_hint_request(context: &Context, request: &Request, symbols: &Sym
         let mut called_function_args: Vec<Symbol> = Vec::new();
         for (use_line, uses) in &mod_symbols.clone().elements() {
             for u in uses {
-                // TODO: need to handle function calls without named variables like: `foo(1, b"abcd")` instead of `foo(a, b)`
-                eprintln!("use_line: {}, u: {:?}", use_line, u);
                 let padding_right = is_call;
                 let hint = match &u.use_type {
                     IdentType::RegularType(t) => InlayHint {

@@ -903,6 +903,7 @@ fn maybe_parse_value(context: &mut Context) -> Result<Option<Value>, Box<Diagnos
     )))
 }
 
+// NOTE: parse the literal value
 fn parse_value(context: &mut Context) -> Result<Value, Box<Diagnostic>> {
     Ok(maybe_parse_value(context)?.expect("parse_value called with invalid token"))
 }
@@ -1013,6 +1014,7 @@ fn parse_sequence(context: &mut Context) -> Result<Sequence, Box<Diagnostic>> {
 //          | "return" <Exp>?
 //          | "abort" "{" <Exp> "}"
 //          | "abort" <Exp>
+// NOTE: here the literal can be parsed
 fn parse_term(context: &mut Context) -> Result<Exp, Box<Diagnostic>> {
     const VECTOR_IDENT: &str = "vector";
 
@@ -1272,6 +1274,7 @@ fn parse_control_exp(context: &mut Context) -> Result<(Exp, bool), Box<Diagnosti
 //          | <NameAccessChain> <OptionalTypeArgs> "(" Comma<Exp> ")"
 //          | <NameAccessChain> "!" "(" Comma<Exp> ")"
 //          | <NameAccessChain> <OptionalTypeArgs>
+// NOTE: here the function call can be parsed
 fn parse_name_exp(context: &mut Context) -> Result<Exp_, Box<Diagnostic>> {
     let n = parse_name_access_chain(context, || {
         panic!("parse_name_exp with something other than a ModuleAccess")
@@ -1312,6 +1315,7 @@ fn parse_name_exp(context: &mut Context) -> Result<Exp_, Box<Diagnostic>> {
         // Call: "(" Comma<Exp> ")"
         Tok::Exclaim | Tok::LParen => {
             let is_macro = false;
+            // NOTE: function call args
             let rhs = parse_call_args(context)?;
             Ok(Exp_::Call(n, is_macro, tys, rhs))
         }
@@ -1639,6 +1643,7 @@ fn parse_dot_or_index_chain(context: &mut Context) -> Result<Exp, Box<Diagnostic
                         if is_start_of_call_after_function_name(context, &n) {
                             let call_start = context.tokens.start_loc();
                             let mut tys = None;
+                            // NOTE: type params (Less: `<`)
                             if context.tokens.peek() == Tok::Less
                                 && n.loc.end() as usize == call_start
                             {
@@ -1673,6 +1678,7 @@ fn parse_dot_or_index_chain(context: &mut Context) -> Result<Exp, Box<Diagnostic
 // Look ahead to determine if this is the start of a call expression. Used when parsing method calls
 // to determine if we should parse the type arguments and args following a name. Otherwise, we will
 // parse a field access
+// NOTE: check if it is a call to function
 fn is_start_of_call_after_function_name(context: &Context, n: &Name) -> bool {
     // TODO(macro) consider macro Tok::Exlaim
     let call_start = context.tokens.start_loc();
@@ -2062,6 +2068,7 @@ fn parse_struct_type_parameters(
 //          ("acquires" <NameAccessChain> ("," <NameAccessChain>)*)?
 //          ("{" <Sequence> "}" | ";")
 //
+// NOTE: function declaration parser
 fn parse_function_decl(
     attributes: Vec<Attributes>,
     start_loc: usize,
@@ -2129,6 +2136,7 @@ fn parse_function_decl(
         }
     }
 
+    // NOTE: body parsing
     let body = match native {
         Some(loc) => {
             consume_token(context.tokens, Tok::Semicolon)?;
@@ -2831,6 +2839,7 @@ fn parse_module(
                 }
                 // Regular move constructs
                 Tok::Friend => ModuleMember::Friend(parse_friend_decl(attributes, context)?),
+                // NOTE: here the parsing happens
                 _ => {
                     context.tokens.match_doc_comments();
                     let start_loc = context.tokens.start_loc();

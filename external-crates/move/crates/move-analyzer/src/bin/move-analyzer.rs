@@ -108,7 +108,7 @@ fn main() {
         )),
         references_provider: Some(OneOf::Left(symbols::DEFS_AND_REFS_SUPPORT)),
         document_symbol_provider: Some(OneOf::Left(true)),
-        inlay_hint_provider: Some(OneOf::Left(false)),
+        inlay_hint_provider: Some(OneOf::Left(true)),
         ..Default::default()
     })
     .expect("could not serialize server capabilities");
