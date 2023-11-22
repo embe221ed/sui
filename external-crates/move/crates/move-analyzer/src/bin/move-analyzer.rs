@@ -5,9 +5,9 @@
 use anyhow::Result;
 use clap::Parser;
 use crossbeam::channel::{bounded, select};
-use lsp_server::{Connection, Message, Notification, Request, Response};
+use lsp_server::{Connection, Message, Notification, Request, Response, RequestId};
 use lsp_types::{
-    notification::Notification as _, request::Request as _, CompletionOptions, Diagnostic,
+    notification::Notification as _, request::{Request as _, InlayHintRefreshRequest}, CompletionOptions, Diagnostic,
     HoverProviderCapability, OneOf, SaveOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
     TextDocumentSyncOptions, TypeDefinitionProviderCapability, WorkDoneProgressOptions,
 };
@@ -268,8 +268,16 @@ fn on_notification(
                 &mut context.files,
                 symbolicator_runner,
                 notification,
-            )
+            );
         }
         _ => eprintln!("handle notification '{}' from client", notification.method),
+    }
+    let request = lsp_server::Request::new(RequestId::from(0), InlayHintRefreshRequest::METHOD.to_string(), {});
+    if let Err(err) = context
+        .connection
+        .sender
+        .send(lsp_server::Message::Request(request))
+    {
+        eprintln!("could not send refresh request: {:?}", err);
     }
 }

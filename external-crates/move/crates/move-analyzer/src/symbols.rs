@@ -2581,8 +2581,6 @@ pub fn on_inlay_hint_request(context: &Context, request: &Request, symbols: &Sym
         }
     }
 
-    // eprintln!("test test test");
-
     let response = lsp_server::Response::new_ok(request.id.clone(), Some(serde_json::to_value(result).unwrap()));
     if let Err(err) = context
         .connection
@@ -2591,43 +2589,6 @@ pub fn on_inlay_hint_request(context: &Context, request: &Request, symbols: &Sym
     {
         eprintln!("could not send use response: {:?}", err);
     }
-
-    /* on_use_request(
-        context,
-        symbols,
-        &fpath,
-        line,
-        col,
-        request.id.clone(),
-        |u| {
-            let lang_strings = if !u.doc_string.is_empty() {
-                vec![
-                    MarkedString::LanguageString(
-                        LanguageString {
-                            language: "move".to_string(),
-                            // value: format!("{}```\n\n```markdown\n{}", u.use_type, u.doc_string)
-                            value: u.use_type.to_string(),
-                        },
-                    ),
-                    MarkedString::String(
-                        u.doc_string.trim().to_string(),
-                    ),
-                ]
-            } else {
-                vec![
-                    MarkedString::LanguageString(
-                        LanguageString {
-                            language: "move".to_string(),
-                            value: u.use_type.to_string(),
-                        },
-                    ),
-                ]
-            };
-            let contents = HoverContents::Array(lang_strings);
-            let range = None;
-            Some(serde_json::to_value(Hover { contents, range }).unwrap())
-        },
-    ); */
 }
 
 /// Helper function to handle struct fields

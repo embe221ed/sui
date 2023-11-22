@@ -73,6 +73,7 @@ pub fn on_text_document_sync_notification(
                 parameters.text_document.uri.to_file_path().unwrap(),
                 &parameters.content_changes.last().unwrap().text,
             );
+            symbolicator_runner.run(parameters.text_document.uri.to_file_path().unwrap());
         }
         lsp_types::notification::DidSaveTextDocument::METHOD => {
             let parameters =
