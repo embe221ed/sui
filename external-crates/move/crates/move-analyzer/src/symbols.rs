@@ -72,7 +72,7 @@ use std::{
     fmt,
     path::{Path, PathBuf},
     sync::{Arc, Condvar, Mutex},
-    thread,
+    thread, ops::Deref,
 };
 use tempfile::tempdir;
 use url::Url;
@@ -242,9 +242,16 @@ enum RunnerState {
     Quit,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+enum SymbolicationState {
+    Running,
+    Idle,
+}
+
 /// Data used during symbolication running and symbolication info updating
 pub struct SymbolicatorRunner {
     mtx_cvar: Arc<(Mutex<RunnerState>, Condvar)>,
+    symbolication: Arc<(Mutex<SymbolicationState>, Condvar)>,
 }
 
 impl ModuleDefs {
@@ -369,7 +376,8 @@ impl SymbolicatorRunner {
     /// Create a new idle runner (one that does not actually symbolicate)
     pub fn idle() -> Self {
         let mtx_cvar = Arc::new((Mutex::new(RunnerState::Wait), Condvar::new()));
-        SymbolicatorRunner { mtx_cvar }
+        let symbolication = Arc::new((Mutex::new(SymbolicationState::Idle), Condvar::new()));
+        SymbolicatorRunner { mtx_cvar, symbolication }
     }
 
     /// Create a new runner
@@ -379,12 +387,15 @@ impl SymbolicatorRunner {
     ) -> Self {
         let mtx_cvar = Arc::new((Mutex::new(RunnerState::Wait), Condvar::new()));
         let thread_mtx_cvar = mtx_cvar.clone();
-        let runner = SymbolicatorRunner { mtx_cvar };
+        let symbolication = Arc::new((Mutex::new(SymbolicationState::Idle), Condvar::new()));
+        let thread_symbolication = symbolication.clone();
+        let runner = SymbolicatorRunner { mtx_cvar, symbolication };
 
         thread::Builder::new()
             .stack_size(STACK_SIZE_BYTES)
             .spawn(move || {
                 let (mtx, cvar) = &*thread_mtx_cvar;
+                let (symbolication_mtx, symbolication_cvar) = &*thread_symbolication;
                 // Locations opened in the IDE (files or directories) for which manifest file is missing
                 let mut missing_manifests = BTreeSet::new();
                 // infinite loop to wait for symbolication requests
@@ -436,6 +447,11 @@ impl SymbolicatorRunner {
                         match Symbolicator::get_symbols(root_dir.unwrap().as_path()) {
                             Ok((symbols_opt, lsp_diagnostics)) => {
                                 eprintln!("symbolication finished");
+                                {
+                                    let mut symbolication = symbolication_mtx.lock().unwrap();
+                                    *symbolication = SymbolicationState::Idle;
+                                    symbolication_cvar.notify_all();
+                                }
                                 if let Some(new_symbols) = symbols_opt {
                                     // merge the new symbols with the old ones to support a
                                     // (potentially) new project/package that symbolication information
@@ -474,7 +490,25 @@ impl SymbolicatorRunner {
         let mut symbolicate = mtx.lock().unwrap();
         *symbolicate = RunnerState::Run(starting_path);
         cvar.notify_one();
+        let (symbolication_mtx, symbolication_cvar) = &*self.symbolication;
+        let mut symbolication = symbolication_mtx.lock().unwrap();
+        *symbolication = SymbolicationState::Running;
+        symbolication_cvar.notify_all();
         eprintln!("scheduled run");
+    }
+
+    pub fn wait(&self) {
+        let (symbolication_mtx, symbolication_cvar) = &*self.symbolication;
+        let mut symbolication = symbolication_mtx.lock().unwrap();
+        loop {
+            eprintln!("current status of the symbolication: {:?}", symbolication);
+            match &symbolication.clone() {
+                SymbolicationState::Running => (),
+                SymbolicationState::Idle => break
+            }
+            eprintln!("waiting...");
+            symbolication = symbolication_cvar.wait(symbolication).unwrap();
+        }
     }
 
     pub fn quit(&self) {

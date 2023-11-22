@@ -272,6 +272,7 @@ fn on_notification(
         }
         _ => eprintln!("handle notification '{}' from client", notification.method),
     }
+    symbolicator_runner.wait();
     let request = lsp_server::Request::new(RequestId::from(0), InlayHintRefreshRequest::METHOD.to_string(), {});
     if let Err(err) = context
         .connection
