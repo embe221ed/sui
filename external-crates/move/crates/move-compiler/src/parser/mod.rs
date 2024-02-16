@@ -8,7 +8,7 @@ pub(crate) mod filter;
 pub mod keywords;
 pub mod lexer;
 pub(crate) mod merge_spec_modules;
-pub(crate) mod syntax;
+pub mod syntax;
 
 use crate::{
     diagnostics::{codes::Severity, Diagnostics, FilesSourceText},
@@ -161,6 +161,7 @@ fn ensure_targets_deps_dont_intersect(
     ))
 }
 
+/// NOTE: this is the place that read the file content again...
 fn parse_file(
     compilation_env: &mut CompilationEnv,
     files: &mut FilesSourceText,

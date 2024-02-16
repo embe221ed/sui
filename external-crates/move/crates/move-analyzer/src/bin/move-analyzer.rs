@@ -9,7 +9,7 @@ use lsp_server::{Connection, Message, Notification, Request, Response, RequestId
 use lsp_types::{
     notification::Notification as _, request::{Request as _, InlayHintRefreshRequest}, CompletionOptions, Diagnostic,
     HoverProviderCapability, OneOf, SaveOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TypeDefinitionProviderCapability, WorkDoneProgressOptions,
+    TextDocumentSyncOptions, TypeDefinitionProviderCapability, WorkDoneProgressOptions, InlayHintRegistrationOptions, InlayHintOptions, TextDocumentRegistrationOptions, StaticRegistrationOptions,
 };
 use std::{
     collections::BTreeMap,
@@ -108,19 +108,20 @@ fn main() {
         )),
         references_provider: Some(OneOf::Left(symbols::DEFS_AND_REFS_SUPPORT)),
         document_symbol_provider: Some(OneOf::Left(true)),
-        inlay_hint_provider: Some(OneOf::Left(true)),
+        inlay_hint_provider: Some(OneOf::Left(false)),
         ..Default::default()
     })
     .expect("could not serialize server capabilities");
 
     let (diag_sender, diag_receiver) = bounded::<Result<BTreeMap<Symbol, Vec<Diagnostic>>>>(0);
+    let (refresh_sender, refresh_receiver) = bounded::<Result<bool>>(0);
     let mut symbolicator_runner = symbols::SymbolicatorRunner::idle();
     if symbols::DEFS_AND_REFS_SUPPORT {
         let initialize_params: lsp_types::InitializeParams =
             serde_json::from_value(client_response)
                 .expect("could not deserialize client capabilities");
 
-        symbolicator_runner = symbols::SymbolicatorRunner::new(symbols.clone(), diag_sender);
+        symbolicator_runner = symbols::SymbolicatorRunner::new(symbols.clone(), diag_sender, refresh_sender);
 
         // If initialization information from the client contains a path to the directory being
         // opened, try to initialize symbols before sending response to the client. Do not bother
@@ -146,7 +147,7 @@ fn main() {
                     .unwrap();
             }
         }
-    };
+   };
 
     context
         .connection
@@ -215,6 +216,21 @@ fn main() {
                     Err(error) => eprintln!("IDE message error: {:?}", error),
                 }
             }
+            recv(refresh_receiver) -> message => {
+                match message {
+                    Ok(result) => {
+                        let request = lsp_server::Request::new(RequestId::from(0), InlayHintRefreshRequest::METHOD.to_string(), {});
+                        if let Err(err) = context
+                            .connection
+                            .sender
+                            .send(lsp_server::Message::Request(request))
+                        {
+                            eprintln!("could not send refresh request: {:?}", err);
+                        }
+                    },
+                    Err(error) => eprintln!("symbolicator message error: {:?}", error),
+                }
+            },
         };
     }
 
@@ -265,20 +281,11 @@ fn on_notification(
         | lsp_types::notification::DidSaveTextDocument::METHOD
         | lsp_types::notification::DidCloseTextDocument::METHOD => {
             on_text_document_sync_notification(
-                &mut context.files,
+                context,
                 symbolicator_runner,
                 notification,
             );
         }
         _ => eprintln!("handle notification '{}' from client", notification.method),
-    }
-    symbolicator_runner.wait();
-    let request = lsp_server::Request::new(RequestId::from(0), InlayHintRefreshRequest::METHOD.to_string(), {});
-    if let Err(err) = context
-        .connection
-        .sender
-        .send(lsp_server::Message::Request(request))
-    {
-        eprintln!("could not send refresh request: {:?}", err);
     }
 }

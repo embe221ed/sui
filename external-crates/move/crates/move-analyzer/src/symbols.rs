@@ -60,10 +60,10 @@ use derivative::*;
 use im::ordmap::OrdMap;
 use lsp_server::{Request, RequestId};
 use lsp_types::{
-    request::GotoTypeDefinitionParams, Diagnostic, DocumentSymbol, DocumentSymbolParams,
+    request::{GotoTypeDefinitionParams, InlayHintRefreshRequest, Request as _}, Diagnostic, DocumentSymbol, DocumentSymbolParams,
     GotoDefinitionParams, Hover, HoverContents, HoverParams, LanguageString, Location,
     MarkedString, Position, Range, ReferenceParams, SymbolKind, InlayHintParams,
-    InlayHint, InlayHintLabel, InlayHintKind, TextEdit,
+    InlayHint, InlayHintLabel, InlayHintKind, TextEdit, notification::Notification, PublishDiagnosticsParams,
 };
 
 use std::{
@@ -384,11 +384,13 @@ impl SymbolicatorRunner {
     pub fn new(
         symbols: Arc<Mutex<Symbols>>,
         sender: Sender<Result<BTreeMap<Symbol, Vec<Diagnostic>>>>,
+        refresh_sender: Sender<Result<bool, anyhow::Error>>,
     ) -> Self {
         let mtx_cvar = Arc::new((Mutex::new(RunnerState::Wait), Condvar::new()));
         let thread_mtx_cvar = mtx_cvar.clone();
         let symbolication = Arc::new((Mutex::new(SymbolicationState::Idle), Condvar::new()));
         let thread_symbolication = symbolication.clone();
+        let thread_symbolication1 = symbolication.clone();
         let runner = SymbolicatorRunner { mtx_cvar, symbolication };
 
         thread::Builder::new()
@@ -404,7 +406,9 @@ impl SymbolicatorRunner {
                     let starting_path_opt = {
                         // hold the lock only as long as it takes to get the data, rather than through
                         // the whole symbolication process (hence a separate scope here)
+                        eprintln!("let starting_path_opt");
                         let mut symbolicate = mtx.lock().unwrap();
+                        eprintln!("let symbolicate");
                         match symbolicate.clone() {
                             RunnerState::Quit => break,
                             RunnerState::Run(root_dir) => {
@@ -425,6 +429,7 @@ impl SymbolicatorRunner {
                             }
                         }
                     };
+                    eprintln!("starting_path_opt: {:?}", starting_path_opt);
                     if let Some(starting_path) = starting_path_opt {
                         let root_dir = Self::root_dir(&starting_path);
                         if root_dir.is_none() && !missing_manifests.contains(&starting_path) {
@@ -447,11 +452,6 @@ impl SymbolicatorRunner {
                         match Symbolicator::get_symbols(root_dir.unwrap().as_path()) {
                             Ok((symbols_opt, lsp_diagnostics)) => {
                                 eprintln!("symbolication finished");
-                                {
-                                    let mut symbolication = symbolication_mtx.lock().unwrap();
-                                    *symbolication = SymbolicationState::Idle;
-                                    symbolication_cvar.notify_all();
-                                }
                                 if let Some(new_symbols) = symbols_opt {
                                     // merge the new symbols with the old ones to support a
                                     // (potentially) new project/package that symbolication information
@@ -464,10 +464,18 @@ impl SymbolicatorRunner {
                                     let mut old_symbols = symbols.lock().unwrap();
                                     (*old_symbols).merge(new_symbols);
                                 }
+                                eprintln!("merged symbols");
+                                {
+                                    let mut symbolication = symbolication_mtx.lock().unwrap();
+                                    *symbolication = SymbolicationState::Idle;
+                                    symbolication_cvar.notify_all();
+                                }
+                                eprintln!("sent the notification");
                                 // set/reset (previous) diagnostics
                                 if let Err(err) = sender.send(Ok(lsp_diagnostics)) {
                                     eprintln!("could not pass diagnostics: {:?}", err);
                                 }
+                                eprintln!("sent the diagnostics");
                             }
                             Err(err) => {
                                 eprintln!("symbolication failed: {:?}", err);
@@ -481,34 +489,60 @@ impl SymbolicatorRunner {
             })
             .unwrap();
 
+        // spawn a thread to send inlayHint/refresh
+        thread::Builder::new()
+            .stack_size(STACK_SIZE_BYTES)
+            .spawn(move || {
+                let (symbolication_mtx, symbolication_cvar) = &*thread_symbolication1;
+                eprintln!("start inlah hint refresh thread");
+                // NOTE: this should run in another thread
+                loop {
+                    let state = {
+                        let mut symbolication = symbolication_mtx.lock().unwrap();
+                        eprintln!("current state: {:?}", symbolication);
+                        match &symbolication.clone() {
+                            SymbolicationState::Running => {
+                                loop {
+                                    symbolication = symbolication_cvar.wait(symbolication).unwrap();
+                                    eprintln!("--->current state: {:?}", symbolication);
+                                    match &symbolication.clone() {
+                                        SymbolicationState::Running => (),
+                                        SymbolicationState::Idle => break,
+                                    }
+                                };
+                                true
+                            }
+                            SymbolicationState::Idle => {
+                                symbolication = symbolication_cvar.wait(symbolication).unwrap();
+                                false
+                            }
+                        }
+                    };
+                    if state {
+                        if let Err(err) = refresh_sender
+                            .send(Ok(true))
+                        {
+                            eprintln!("could not send refresh request: {:?}", err);
+                        }
+                    }
+                }
+            })
+            .unwrap();
+
         runner
     }
 
     pub fn run(&self, starting_path: PathBuf) {
         eprintln!("scheduling run for {:?}", starting_path);
-        let (mtx, cvar) = &*self.mtx_cvar;
-        let mut symbolicate = mtx.lock().unwrap();
-        *symbolicate = RunnerState::Run(starting_path);
-        cvar.notify_one();
         let (symbolication_mtx, symbolication_cvar) = &*self.symbolication;
         let mut symbolication = symbolication_mtx.lock().unwrap();
         *symbolication = SymbolicationState::Running;
         symbolication_cvar.notify_all();
+        let (mtx, cvar) = &*self.mtx_cvar;
+        let mut symbolicate = mtx.lock().unwrap();
+        *symbolicate = RunnerState::Run(starting_path);
+        cvar.notify_one();
         eprintln!("scheduled run");
-    }
-
-    pub fn wait(&self) {
-        let (symbolication_mtx, symbolication_cvar) = &*self.symbolication;
-        let mut symbolication = symbolication_mtx.lock().unwrap();
-        loop {
-            eprintln!("current status of the symbolication: {:?}", symbolication);
-            match &symbolication.clone() {
-                SymbolicationState::Running => (),
-                SymbolicationState::Idle => break
-            }
-            eprintln!("waiting...");
-            symbolication = symbolication_cvar.wait(symbolication).unwrap();
-        }
     }
 
     pub fn quit(&self) {
@@ -642,6 +676,9 @@ impl Symbolicator {
     /// correctly computed symbols should be a replacement for the old set - if symbols are not
     /// actually (re)computed and the diagnostics are returned, the old symbolic information should
     /// be retained even if it's getting out-of-date.
+    /// TODO:
+    /// 1. add field that holds info about all variables; for inlay hints
+    /// 2. improve the logic to include actual new files
     pub fn get_symbols(
         pkg_path: &Path,
     ) -> Result<(Option<Symbols>, BTreeMap<Symbol, Vec<Diagnostic>>)> {
@@ -661,6 +698,7 @@ impl Symbolicator {
         // get source files to be able to correlate positions (in terms of byte offsets) with actual
         // file locations (in terms of line/column numbers)
         let source_files = &resolution_graph.file_sources();
+
         let mut files = SimpleFiles::new();
         let mut file_id_mapping = HashMap::new();
         let mut file_id_to_lines = HashMap::new();
@@ -677,6 +715,9 @@ impl Symbolicator {
         let mut typed_ast = None;
         let mut diagnostics = None;
         build_plan.compile_with_driver(&mut std::io::sink(), |compiler| {
+            /// NOTE: this function `run` will use the `parse_program` function internally, which
+            /// is close to `parse_file_string`, this may be a good starting point for extending
+            /// the use_defs
             let (files, compilation_result) = compiler.run::<PASS_TYPING>()?;
             let (_, compiler) = match compilation_result {
                 Ok(v) => v,
@@ -2621,7 +2662,7 @@ pub fn on_inlay_hint_request(context: &Context, request: &Request, symbols: &Sym
         .sender
         .send(lsp_server::Message::Response(response))
     {
-        eprintln!("could not send use response: {:?}", err);
+        eprintln!("could not send inlay hint response: {:?}", err);
     }
 }
 
